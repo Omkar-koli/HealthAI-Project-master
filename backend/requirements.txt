@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+numpy
+pillow
+tensorflow-cpu
+python-multipart
+sqlalchemy
+psycopg[binary]
+python-dotenv

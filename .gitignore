@@ -1,0 +1,33 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Dataset
+Dataset/
+
+# Local patient uploads
+uploads/
+data/uploads/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+
+# Large ML model files
+*.pth
+*.pt
+*.ckpt
+*.h5
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
