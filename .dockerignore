@@ -1,0 +1,40 @@
+# Save this file as: .dockerignore  (at the project ROOT)
+
+# Secrets - never let these into the build context or image
+.env
+.env.*
+!.env.example
+
+# Version control
+.git/
+.gitignore
+
+# Python junk
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Local-only data (never needed inside the image)
+uploads/
+data/uploads/
+Dataset/
+*.db
+*.sqlite
+*.sqlite3
+
+# Notebooks, docs, screenshots - not needed at runtime
+notebooks/
+screenshots/
+README.md
+healthai.png
+
+# OS / IDE junk
+.DS_Store
+.vscode/
+.idea/
+
+# Docker-related (avoid recursive copying issues)
+docker-compose.yml
+Dockerfile
