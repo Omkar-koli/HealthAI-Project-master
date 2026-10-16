@@ -38,7 +38,7 @@ DATABASE_URL=postgresql+psycopg://healthai_user:your_password@localhost:5432/hea
 API_URL=http://127.0.0.1:8000
 ```
 
-The application creates the `studies` table on startup. Uploaded image bytes are stored only in `uploads/`; PostgreSQL stores the path.
+The application no longer creates tables itself. The schema is created by the SQL files in `migrations/` (see below). In local mode, uploaded image bytes are stored in `uploads/` and PostgreSQL stores the path; in cloud mode they go to a Cloud Storage bucket.
 
 ## Install dependencies
 
@@ -98,3 +98,33 @@ studies
 - `models/xray_chexpert_labels.json`
 
 The old pneumonia-only model, DenseNet training path, NIH preparation path, analytics, and Grad-CAM are outside Milestone 1.
+
+## Cloud deployment (Milestone 4)
+
+State no longer lives on the VM:
+
+| State | Local development | Cloud (VM) |
+|---|---|---|
+| Database | throwaway Postgres container (`docker-compose.yml`) | Cloud SQL for PostgreSQL, **private IP only** |
+| Uploaded images | `uploads/` volume | Cloud Storage bucket, accessed with the VM's service account (no key file) |
+| Secrets | developer's local `.env` | Secret Manager, fetched at runtime (no `.env` in the container) |
+
+The local stack and the cloud stack hold **different data on purpose**. The UI banner and `GET /health`
+report `environment`, `database`, and `storage` so you can always tell which one you are looking at.
+
+### Schema migrations
+
+Tables are created by the files in `migrations/`, applied in order by an admin (never by the app):
+
+```bash
+psql -h <host> -U <admin_user> -d healthai -v ON_ERROR_STOP=1 -f migrations/001_create_studies.sql
+psql -h <host> -U <admin_user> -d healthai -v ON_ERROR_STOP=1 -f migrations/002_grant_app_role.sql
+```
+
+`schema_migrations` records which versions have been applied. The local compose file mounts the same
+folder into the Postgres container so a fresh local database gets the identical schema.
+
+### Running in the cloud
+
+`docker-compose.cloud.yml` contains no database service, no volumes, and no passwords. The backend reads
+`DB_SECRET_NAME` (the *name* of a secret) and fetches the value from Secret Manager with the VM's service account.

@@ -1,0 +1,45 @@
+# CLOUD STACK (runs on the Compute Engine VM).
+#
+# There is deliberately NO database service and NO uploads volume here:
+#   - database -> Cloud SQL (private IP only)
+#   - uploads  -> Cloud Storage bucket
+#   - secrets  -> Secret Manager (fetched at runtime with the VM's service account)
+# There is also NO .env file and NO password anywhere in this file.
+#
+# Before first use, replace REPLACE_WITH_CLOUD_SQL_PRIVATE_IP with the instance's private IP.
+
+services:
+  backend:
+    image: us-central1-docker.pkg.dev/healthai-508921/healthai-repo/healthai-backend:v2
+    container_name: healthai-backend
+    restart: always
+    environment:
+      GCP_PROJECT: healthai-508921
+      DB_HOST: REPLACE_WITH_CLOUD_SQL_PRIVATE_IP
+      DB_PORT: "5432"
+      DB_NAME: healthai
+      DB_USER: healthai_app
+      DB_SECRET_NAME: healthai-db-app-password   # the NAME of the secret, not its value
+      STORAGE_BACKEND: gcs
+      GCS_BUCKET: healthai-uploads-508921
+    ports:
+      - "8000:8000"
+    networks:
+      - healthai-net
+
+  frontend:
+    image: us-central1-docker.pkg.dev/healthai-508921/healthai-repo/healthai-frontend:v2
+    container_name: healthai-frontend
+    restart: always
+    environment:
+      API_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "8501:8501"
+    networks:
+      - healthai-net
+
+networks:
+  healthai-net:
+    driver: bridge

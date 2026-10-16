@@ -1,4 +1,7 @@
-# Save this file as: docker-compose.yml  (at the project ROOT, next to backend/ and dashboard/)
+# LOCAL DEVELOPMENT STACK ONLY.
+# This runs its own throwaway PostgreSQL container and stores uploads on a local volume.
+# Its data is NOT the real data. Real data lives in Cloud SQL + Cloud Storage and is served by
+# docker-compose.cloud.yml on the VM. The UI banner and GET /health show which stack you are on.
 
 services:
   db:
@@ -11,6 +14,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Same migration files used in the cloud; Postgres runs them on first start of an empty volume.
+      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -25,11 +30,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    image: healthai-backend:v1
+    image: healthai-backend:dev
     container_name: healthai-backend
     restart: always
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      STORAGE_BACKEND: local
     depends_on:
       db:
         condition: service_healthy
@@ -44,7 +50,7 @@ services:
     build:
       context: .
       dockerfile: dashboard/Dockerfile
-    image: healthai-frontend:v1
+    image: healthai-frontend:dev
     container_name: healthai-frontend
     restart: always
     environment:

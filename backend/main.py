@@ -1,26 +1,27 @@
 from __future__ import annotations
 
 import io
+import mimetypes
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.database.database import Base, SessionLocal, engine, ensure_study_columns
+from backend.core.config import APP_ENV, DATABASE_MODE, STORAGE_BACKEND
+from backend.database.database import SessionLocal
 from backend.database.models import Study
 from backend.database.studies import complete_study, create_study, fail_study, recent_studies
-from backend.core.config import UPLOADS_PATH
 from backend.inference import analyze_image
-from backend.services.storage import save_uploaded_image
+from backend.services.storage import StorageError, load_image_bytes, save_uploaded_image
 
-Base.metadata.create_all(bind=engine)
-ensure_study_columns()
+# NOTE: tables are no longer created here. The schema comes from migrations/*.sql.
 
-app = FastAPI(title="HealthAI Milestone 1 API")
+app = FastAPI(title="HealthAI API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -51,7 +52,14 @@ def study_response(study: Study, predictions: dict[str, float] | None = None) ->
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    # environment/database/storage make it obvious which stack you are looking at
+    # (cloud vs. a local dev stack), so screenshots and demos are never ambiguous.
+    return {
+        "status": "ok",
+        "environment": APP_ENV,
+        "database": DATABASE_MODE,
+        "storage": STORAGE_BACKEND,
+    }
 
 
 @app.post("/studies/analyze")
@@ -79,11 +87,15 @@ async def analyze_study(
     db = SessionLocal()
     study = None
     try:
-        stored_path = save_uploaded_image(
-            image_bytes,
-            file.filename or "upload.png",
-            patient_name,
-        )
+        try:
+            stored_path = save_uploaded_image(
+                image_bytes,
+                file.filename or "upload.png",
+                patient_name,
+            )
+        except StorageError as error:
+            raise HTTPException(status_code=503, detail="Image storage failed.") from error
+
         study = create_study(
             db,
             patient_name,
@@ -92,7 +104,8 @@ async def analyze_study(
         )
 
         try:
-            predictions = analyze_image(stored_path)
+            # Inference runs on the bytes already in memory: no local file is re-read.
+            predictions = analyze_image(image_bytes)
             if not predictions:
                 raise RuntimeError("No configured CheXpert findings were returned.")
             predicted_condition, confidence = max(predictions.items(), key=lambda item: item[1])
@@ -135,16 +148,26 @@ def get_study(study_id: int) -> dict[str, Any]:
 
 
 @app.get("/studies/{study_id}/image")
-def get_study_image(study_id: int) -> FileResponse:
+def get_study_image(study_id: int) -> Response:
     db = SessionLocal()
     try:
         study = db.get(Study, study_id)
         if study is None:
             raise HTTPException(status_code=404, detail="Study not found.")
-        upload_root = Path(UPLOADS_PATH).resolve()
-        image_path = Path(study.image_path).resolve()
-        if upload_root.resolve() not in image_path.parents or not image_path.is_file():
-            raise HTTPException(status_code=404, detail="Study image not found.")
-        return FileResponse(image_path, filename=study.image_name)
+        image_name, image_path = study.image_name, study.image_path
     finally:
         db.close()
+
+    try:
+        image_bytes = load_image_bytes(image_path)
+    except StorageError as error:
+        raise HTTPException(status_code=503, detail="Image storage unavailable.") from error
+    if image_bytes is None:
+        raise HTTPException(status_code=404, detail="Study image not found.")
+
+    media_type = mimetypes.guess_type(image_name)[0] or "application/octet-stream"
+    return Response(
+        content=image_bytes,
+        media_type=media_type,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(image_name)}"},
+    )

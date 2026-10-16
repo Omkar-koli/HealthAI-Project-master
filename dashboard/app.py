@@ -11,7 +11,21 @@ API_URL = os.getenv("API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 st.set_page_config(page_title="HealthAI", page_icon="X-ray", layout="centered")
 st.title("HealthAI")
-st.caption("Local chest X-ray analysis with PostgreSQL study history")
+
+
+def backend_mode() -> str:
+    """Show which stack this UI is talking to, so cloud vs. local is never ambiguous."""
+    try:
+        info = requests.get(f"{API_URL}/health", timeout=5).json()
+        return (
+            f"Environment: {str(info.get('environment', '?')).upper()} | "
+            f"database: {info.get('database', '?')} | storage: {info.get('storage', '?')}"
+        )
+    except (requests.RequestException, ValueError):
+        return "Backend not reachable"
+
+
+st.caption(backend_mode())
 
 if "selected_study_id" not in st.session_state:
     st.session_state.selected_study_id = None

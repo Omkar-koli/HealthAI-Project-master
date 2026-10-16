@@ -30,8 +30,8 @@ def _get_labels() -> list[str]:
     return _labels
 
 
-def analyze_image(image_path: str) -> Dict[str, float]:
-    image = Image.open(image_path).convert("RGB").resize((224, 224))
+def analyze_image(image_bytes: bytes) -> Dict[str, float]:
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
     array = np.asarray(image, dtype=np.float32) / 255.0
     probabilities = _get_model().predict(np.expand_dims(array, axis=0), verbose=0)[0]
     labels = _get_labels()

@@ -37,4 +37,6 @@ healthai.png
 
 # Docker-related (avoid recursive copying issues)
 docker-compose.yml
+docker-compose.cloud.yml
+migrations/
 Dockerfile

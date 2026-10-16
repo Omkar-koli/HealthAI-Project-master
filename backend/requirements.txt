@@ -7,3 +7,5 @@ python-multipart
 sqlalchemy
 psycopg[binary]
 python-dotenv
+google-cloud-storage
+google-cloud-secret-manager
