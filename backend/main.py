@@ -10,6 +10,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.core.config import APP_ENV, DATABASE_MODE, STORAGE_BACKEND
@@ -60,6 +61,33 @@ def health() -> dict[str, str]:
         "database": DATABASE_MODE,
         "storage": STORAGE_BACKEND,
     }
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, str]:
+    """LIVENESS probe: the process is up and can answer HTTP.
+
+    It deliberately checks NO dependencies. If it called the database, a database outage would make
+    Kubernetes restart perfectly healthy pods and turn a small problem into a bigger one.
+    """
+    return {"status": "alive"}
+
+
+@app.get("/readyz")
+def readyz() -> dict[str, str]:
+    """READINESS probe: can this pod serve real traffic right now? Checks the database.
+
+    Failing this does not restart the pod; it only removes it from the load balancer until the
+    database answers again.
+    """
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError as error:
+        raise HTTPException(status_code=503, detail="Database not reachable.") from error
+    finally:
+        db.close()
+    return {"status": "ready", "database": "ok"}
 
 
 @app.post("/studies/analyze")
