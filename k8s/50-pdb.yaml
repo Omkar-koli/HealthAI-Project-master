@@ -1,0 +1,21 @@
+# Voluntary disruptions (node upgrades, Autopilot node recycling, drains) may take down at most one pod at a time,
+# so there is always a ready pod. Without this, all replicas can be evicted together and users get 5xx errors.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import io
+import logging
 import mimetypes
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -17,12 +19,26 @@ from backend.core.config import APP_ENV, DATABASE_MODE, STORAGE_BACKEND
 from backend.database.database import SessionLocal
 from backend.database.models import Study
 from backend.database.studies import complete_study, create_study, fail_study, recent_studies
-from backend.inference import analyze_image
+from backend.inference import analyze_image, warm_up
 from backend.services.storage import StorageError, load_image_bytes, save_uploaded_image
 
 # NOTE: tables are no longer created here. The schema comes from migrations/*.sql.
 
-app = FastAPI(title="HealthAI API")
+logger = logging.getLogger("uvicorn.error")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Load the model before the server accepts traffic. In dev/tests without a model file, carry on.
+    try:
+        warm_up()
+        logger.info("Model warmed up.")
+    except Exception as error:  # noqa: BLE001
+        logger.warning("Model warm-up skipped: %s", error)
+    yield
+
+
+app = FastAPI(title="HealthAI API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -91,7 +107,7 @@ def readyz() -> dict[str, str]:
 
 
 @app.post("/studies/analyze")
-async def analyze_study(
+def analyze_study(
     patient_name: str = Form(...),
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
@@ -103,7 +119,7 @@ async def analyze_study(
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only JPG, JPEG, and PNG files are accepted.")
 
-    image_bytes = await file.read()
+    image_bytes = file.file.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 

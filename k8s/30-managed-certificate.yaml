@@ -1,0 +1,9 @@
+# Google-managed TLS certificate. It becomes Active (usually 15-60 minutes) once DNS for the host
+# resolves to the load balancer's IP.
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: healthai-cert
+spec:
+  domains:
+    - app.healthai-g6-uh.com

@@ -1,0 +1,15 @@
+# Internal only: the frontend reaches the backend at http://backend:8000. Nothing public points here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

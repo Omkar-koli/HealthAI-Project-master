@@ -1,0 +1,23 @@
+# Internet -> global HTTPS load balancer (static IP healthai-lb-ip) -> this Ingress -> frontend Service -> pods
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: healthai-ingress
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: healthai-lb-ip
+    networking.gke.io/managed-certificates: healthai-cert
+    networking.gke.io/v1beta1.FrontendConfig: healthai-frontend-config
+    kubernetes.io/ingress.allow-http: "true"        # needed so port 80 exists and can redirect to https
+spec:
+  rules:
+    - host: app.healthai-g6-uh.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 8501

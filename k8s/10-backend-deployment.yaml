@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 2                      # the HPA (40-hpa.yaml) takes over from here
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0            # never remove a ready pod before its replacement is ready
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      serviceAccountName: healthai-app
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: backend
+          image: us-central1-docker.pkg.dev/healthai-508921/healthai-repo/healthai-backend:v4
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - { name: GCP_PROJECT,    value: healthai-508921 }
+            - { name: DB_HOST,        value: "10.100.192.3" }      # Cloud SQL private IP (not a secret)
+            - { name: DB_PORT,        value: "5432" }
+            - { name: DB_NAME,        value: healthai }
+            - { name: DB_USER,        value: healthai_app }
+            - { name: DB_SECRET_NAME, value: healthai-db-app-password }   # the NAME of the secret, not its value
+            - { name: STORAGE_BACKEND, value: gcs }
+            - { name: GCS_BUCKET,     value: healthai-uploads-508921 }
+          resources:
+            requests: { cpu: 500m, memory: 2Gi }
+            limits:   { cpu: 500m, memory: 2Gi }       # Autopilot makes limits equal requests
+          # STARTUP: gives imports + model warm-up up to 4 minutes before the other probes begin.
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 48
+          # LIVENESS: "is the process alive?" Checks nothing else, so a database outage never restarts pods.
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # READINESS: "can this pod serve traffic?" Also queries the database. Failing it removes the
+          # pod from the Service/load balancer but does NOT restart it.
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 2
+          lifecycle:
+            preStop:                                   # keep serving briefly while the load balancer drops this pod
+              exec: { command: ["sleep", "10"] }

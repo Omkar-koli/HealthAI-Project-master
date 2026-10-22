@@ -1,0 +1,16 @@
+# Load-balancer settings for the frontend. Streamlit keeps a long-lived WebSocket per user, so the default
+# 30 s backend timeout would disconnect people; cookie affinity keeps a user on one pod.
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: frontend-backendconfig
+spec:
+  timeoutSec: 3600
+  connectionDraining:
+    drainingTimeoutSec: 30
+  sessionAffinity:
+    affinityType: GENERATED_COOKIE
+    affinityCookieTtlSec: 3600
+  healthCheck:
+    type: HTTP
+    requestPath: /_stcore/health

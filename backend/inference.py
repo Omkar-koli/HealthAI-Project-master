@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 from pathlib import Path
 from typing import Dict
 
@@ -13,13 +14,24 @@ from backend.core.config import MILESTONE_1_LABELS, MODEL_LABELS_PATH, MODEL_PAT
 
 _model = None
 _labels: list[str] | None = None
+_model_lock = threading.Lock()
 
 
 def _get_model():
+    # Requests run in a thread pool, so guard the one-time load: two threads must not load the model twice.
     global _model
     if _model is None:
-        _model = load_model(MODEL_PATH)
+        with _model_lock:
+            if _model is None:
+                _model = load_model(MODEL_PATH)
     return _model
+
+
+def warm_up() -> None:
+    """Load the model and run one dummy prediction at startup, so a pod only reports Ready once the
+    first real request will be fast."""
+    _get_labels()
+    _get_model().predict(np.zeros((1, 224, 224, 3), dtype=np.float32), verbose=0)
 
 
 def _get_labels() -> list[str]:

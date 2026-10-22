@@ -1,0 +1,41 @@
+# Generates real inference traffic against the backend Service for ~4 minutes so the autoscaler can be seen working.
+# NOT applied by "kubectl apply -f k8s/" (it lives in a subfolder). Run it on purpose:
+#   kubectl apply -f k8s/loadtest/loadtest-job.yaml
+# It creates studies named "loadtest"; the cleanup steps are in k8s/README.md.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: loadtest
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 420
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: loadtest
+          image: us-central1-docker.pkg.dev/healthai-508921/healthai-repo/healthai-frontend:v2      # has python, requests and Pillow
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits:   { cpu: 250m, memory: 512Mi }
+          command: ["python", "-c"]
+          args:
+            - |
+              import io, threading, time, requests
+              from PIL import Image
+              buf = io.BytesIO(); Image.effect_noise((224, 224), 64).convert("RGB").save(buf, "PNG")
+              png = buf.getvalue()
+              url = "http://backend:8000/studies/analyze"
+              end = time.time() + 240
+              ok = [0]; bad = [0]
+              def worker():
+                  while time.time() < end:
+                      try:
+                          r = requests.post(url, data={"patient_name": "loadtest"}, files={"file": ("load.png", png, "image/png")}, timeout=120)
+                          (ok if r.ok else bad)[0] += 1
+                      except Exception:
+                          bad[0] += 1
+              threads = [threading.Thread(target=worker) for _ in range(8)]
+              [t.start() for t in threads]; [t.join() for t in threads]
+              print("finished: ok=%d failed=%d" % (ok[0], bad[0]))

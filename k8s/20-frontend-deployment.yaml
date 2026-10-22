@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: frontend
+          image: us-central1-docker.pkg.dev/healthai-508921/healthai-repo/healthai-frontend:v2
+          ports:
+            - name: http
+              containerPort: 8501
+          env:
+            - { name: API_URL, value: "http://backend:8000" }
+          resources:
+            requests: { cpu: 250m, memory: 1Gi }
+            limits:   { cpu: 250m, memory: 1Gi }
+          startupProbe:
+            httpGet: { path: /_stcore/health, port: http }
+            periodSeconds: 3
+            failureThreshold: 40
+          livenessProbe:
+            httpGet: { path: /_stcore/health, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /_stcore/health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              exec: { command: ["sleep", "10"] }
