@@ -55,6 +55,14 @@ UPLOADS_PATH = os.getenv("UPLOADS_PATH", str(BASE_DIR / "uploads"))
 if STORAGE_BACKEND == "gcs" and not GCS_BUCKET:
     raise RuntimeError("STORAGE_BACKEND=gcs requires GCS_BUCKET to be set.")
 
+# ---------------------------------------------------------------------------
+# Version label (Milestone 6). Set at image build time by the CI/CD pipeline
+# (Phase 4), which passes the commit SHA as a Docker build arg. Defaults to
+# "dev" for a manual local build, so /health and the dashboard caption always
+# show something meaningful even before the pipeline exists.
+# ---------------------------------------------------------------------------
+APP_VERSION = os.getenv("APP_VERSION", "dev")
+
 MILESTONE_1_LABELS = [
     "Atelectasis",
     "Cardiomegaly",

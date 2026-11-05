@@ -1,21 +1,25 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import mimetypes
+import sys
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.core.config import APP_ENV, DATABASE_MODE, STORAGE_BACKEND
+from backend.core.config import APP_ENV, APP_VERSION, DATABASE_MODE, STORAGE_BACKEND
 from backend.database.database import SessionLocal
 from backend.database.models import Study
 from backend.database.studies import complete_study, create_study, fail_study, recent_studies
@@ -25,6 +29,37 @@ from backend.services.storage import StorageError, load_image_bytes, save_upload
 # NOTE: tables are no longer created here. The schema comes from migrations/*.sql.
 
 logger = logging.getLogger("uvicorn.error")
+
+
+# ---------------------------------------------------------------------------
+# Structured (JSON) request logging — Milestone 6.
+#
+# Each line written to stdout is one JSON object. GKE's logging agent parses
+# JSON lines from container stdout automatically, so these show up in Cloud
+# Logging as structured entries (jsonPayload) rather than plain text, which is
+# what the log-based metric in Phase 3 filters on (jsonPayload.status >= 500).
+# ---------------------------------------------------------------------------
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "severity": record.levelname,
+            "message": record.getMessage(),
+        }
+        for field in ("method", "path", "status", "duration_ms", "version"):
+            value = getattr(record, field, None)
+            if value is not None:
+                payload[field] = value
+        return json.dumps(payload)
+
+
+request_logger = logging.getLogger("healthai.request")
+request_logger.setLevel(logging.INFO)
+request_logger.propagate = False
+if not request_logger.handlers:
+    _handler = logging.StreamHandler(sys.stdout)
+    _handler.setFormatter(JsonFormatter())
+    request_logger.addHandler(_handler)
 
 
 @asynccontextmanager
@@ -46,6 +81,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Write one JSON log line per request, with a numeric status field.
+
+    This is what the log-based metric (Phase 3) will filter on to count 5xx
+    responses, and what the demo shows in Logs Explorer next to the triggered
+    test error.
+    """
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+
+    if response.status_code >= 500:
+        level = logging.ERROR
+    elif response.status_code >= 400:
+        level = logging.WARNING
+    else:
+        level = logging.INFO
+
+    request_logger.log(
+        level,
+        "request",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+            "version": APP_VERSION,
+        },
+    )
+    return response
+
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
@@ -76,6 +145,7 @@ def health() -> dict[str, str]:
         "environment": APP_ENV,
         "database": DATABASE_MODE,
         "storage": STORAGE_BACKEND,
+        "version": APP_VERSION,
     }
 
 
@@ -104,6 +174,18 @@ def readyz() -> dict[str, str]:
     finally:
         db.close()
     return {"status": "ready", "database": "ok"}
+
+
+@app.get("/debug/error")
+def debug_error() -> dict[str, str]:
+    """Deliberately returns a 500 so the Milestone 6 demo has a controlled error to show:
+    this request's JSON log entry (status=500, severity=ERROR), the matching rise in the
+    log-based metric, the alert, and the dashboard spike.
+
+    Not used by real patients — it is only reachable through the diagnostics button in the
+    Streamlit dashboard, since the backend itself has no public DNS name of its own.
+    """
+    raise HTTPException(status_code=500, detail="Deliberate test error for the monitoring demo.")
 
 
 @app.post("/studies/analyze")

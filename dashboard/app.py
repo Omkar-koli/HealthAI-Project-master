@@ -19,13 +19,30 @@ def backend_mode() -> str:
         info = requests.get(f"{API_URL}/health", timeout=5).json()
         return (
             f"Environment: {str(info.get('environment', '?')).upper()} | "
-            f"database: {info.get('database', '?')} | storage: {info.get('storage', '?')}"
+            f"database: {info.get('database', '?')} | storage: {info.get('storage', '?')} | "
+            f"version: {info.get('version', '?')}"
         )
     except (requests.RequestException, ValueError):
         return "Backend not reachable"
 
 
 st.caption(backend_mode())
+
+with st.sidebar:
+    st.subheader("Diagnostics")
+    st.caption(
+        "For the Milestone 6 monitoring demo: produces a deliberate server "
+        "error so the JSON log, metric, dashboard and alert can be shown end to end."
+    )
+    if st.button("Trigger test error"):
+        try:
+            response = requests.get(f"{API_URL}/debug/error", timeout=10)
+            st.warning(
+                f"Test error triggered (HTTP {response.status_code}). "
+                "Check Logs Explorer for the JSON entry."
+            )
+        except requests.RequestException as error:
+            st.error(f"Could not reach backend: {error}")
 
 if "selected_study_id" not in st.session_state:
     st.session_state.selected_study_id = None
