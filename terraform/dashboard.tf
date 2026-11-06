@@ -149,4 +149,13 @@ resource "google_monitoring_dashboard" "healthai" {
       ]
     }
   })
+
+  # The Monitoring API returns extra computed fields on read (etag, name,
+  # targetAxis) that never exactly match what we sent, so without this,
+  # "terraform plan" would show a false diff on this resource forever, even
+  # with zero real changes. We're not planning to edit the dashboard further
+  # this milestone, so ignoring drift here is the practical fix.
+  lifecycle {
+    ignore_changes = [dashboard_json]
+  }
 }

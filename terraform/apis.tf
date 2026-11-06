@@ -35,3 +35,11 @@ import {
   to       = google_project_service.core[each.value]
   id       = "healthai-508921/${each.value}"
 }
+
+# NEW (not imported — this one wasn't enabled yet): required for Workload
+# Identity Federation's token exchange, used by the CI/CD pipeline (Phase 4).
+resource "google_project_service" "sts" {
+  project             = var.project_id
+  service             = "sts.googleapis.com"
+  disable_on_destroy  = false
+}
