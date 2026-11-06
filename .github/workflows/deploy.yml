@@ -85,12 +85,15 @@ jobs:
       - name: Wait for backend rollout
         id: rollout_backend
         continue-on-error: true
-        run: kubectl rollout status deployment/backend --timeout=180s
+        # 300s (not 180s): GKE Autopilot provisions nodes on demand, and a
+        # surge pod during a rolling update occasionally needs a fresh node,
+        # which can take longer than 180s if the cluster has scaled down.
+        run: kubectl rollout status deployment/backend --timeout=300s
 
       - name: Wait for frontend rollout
         id: rollout_frontend
         continue-on-error: true
-        run: kubectl rollout status deployment/frontend --timeout=180s
+        run: kubectl rollout status deployment/frontend --timeout=300s
 
       - name: Check the public URL
         id: health_check
@@ -112,8 +115,8 @@ jobs:
       - name: Verify the previous version is serving again
         if: steps.rollout_backend.outcome == 'failure' || steps.rollout_frontend.outcome == 'failure' || steps.health_check.outcome == 'failure'
         run: |
-          kubectl rollout status deployment/backend --timeout=120s
-          kubectl rollout status deployment/frontend --timeout=120s
+          kubectl rollout status deployment/backend --timeout=180s
+          kubectl rollout status deployment/frontend --timeout=180s
           code=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL")
           echo "HTTP status after rollback: $code"
           test "$code" = "200"
