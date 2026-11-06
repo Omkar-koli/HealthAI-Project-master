@@ -9,3 +9,15 @@ variable "region" {
   type        = string
   default     = "us-central1"
 }
+
+variable "alert_emails" {
+  description = "Team email addresses that receive the Milestone 6 5xx alert."
+  type        = list(string)
+  default = [
+    "sranjan@cougarnet.uh.edu",
+    "sdamera@cougarnet.uh.edu",
+    "okoli@cougarnet.uh.edu",
+    "sathomas26@cougarnet.uh.edu",
+    "aedachal@cougarnet.uh.edu",
+  ]
+}
