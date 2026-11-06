@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-serviceaccount.yaml
+  - 10-backend-deployment.yaml
+  - 11-backend-service.yaml
+  - 20-frontend-deployment.yaml
+  - 21-frontend-service.yaml
+  - 22-backendconfig.yaml
+  - 30-managed-certificate.yaml
+  - 31-frontendconfig.yaml
+  - 32-ingress.yaml
+  - 40-hpa.yaml
+  - 50-pdb.yaml
+
+# images[0] = backend, images[1] = frontend — order matters here. The CI/CD
+# pipeline (.github/workflows/deploy.yml) overrides these two newTag values
+# by index on every run (tagging both images with the commit SHA), so the
+# values below are never actually used by the pipeline. They're only a safe
+# fallback if someone runs "kubectl apply -k k8s/" by hand outside the
+# pipeline — matching whatever was last manually deployed.
+images:
+  - name: us-central1-docker.pkg.dev/healthai-508921/healthai-repo/healthai-backend
+    newTag: v5
+  - name: us-central1-docker.pkg.dev/healthai-508921/healthai-repo/healthai-frontend
+    newTag: v3

@@ -1,0 +1,127 @@
+name: Deploy HealthAI
+
+# Only pushes to the "deploy" branch trigger a release — ordinary pushes to
+# main never touch the cluster. This is the branch restriction mentioned in
+# terraform/pipeline.tf (the repo restriction lives there; this is the other half).
+on:
+  push:
+    branches:
+      - deploy
+
+permissions:
+  contents: read
+  id-token: write # required for keyless Workload Identity Federation
+
+env:
+  PROJECT_ID: healthai-508921
+  REGION: us-central1
+  CLUSTER_NAME: healthai-cluster
+  AR_REPO: us-central1-docker.pkg.dev/healthai-508921/healthai-repo
+  LIVE_URL: https://app.healthai-g6-uh.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/276882444331/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
+          service_account: healthai-ci-deploy@healthai-508921.iam.gserviceaccount.com
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install the GKE auth plugin
+        run: gcloud components install gke-gcloud-auth-plugin --quiet
+
+      - name: Get cluster credentials
+        run: |
+          gcloud container clusters get-credentials "$CLUSTER_NAME" \
+            --region "$REGION" --project "$PROJECT_ID"
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Download model file from the bucket
+        run: |
+          gcloud storage cp \
+            gs://healthai-uploads-508921/models/xray_chexpert_multidisease_model.h5 \
+            models/xray_chexpert_multidisease_model.h5
+
+      - name: Build and push backend image
+        run: |
+          docker build \
+            -t "$AR_REPO/healthai-backend:${{ github.sha }}" \
+            --build-arg APP_VERSION="${{ github.sha }}" \
+            -f backend/Dockerfile .
+          docker push "$AR_REPO/healthai-backend:${{ github.sha }}"
+
+      - name: Build and push frontend image
+        run: |
+          docker build \
+            -t "$AR_REPO/healthai-frontend:${{ github.sha }}" \
+            -f dashboard/Dockerfile .
+          docker push "$AR_REPO/healthai-frontend:${{ github.sha }}"
+
+      - name: Set image tags for this release
+        run: |
+          yq -i '.images[0].newTag = "${{ github.sha }}"' k8s/kustomization.yaml
+          yq -i '.images[1].newTag = "${{ github.sha }}"' k8s/kustomization.yaml
+
+      # Demo-only hook: a commit message containing [fail-deploy] deliberately
+      # points the backend at an image tag that was never built, so the
+      # rollout below fails on purpose and the rollback steps get exercised.
+      - name: Inject a deliberately broken release
+        if: contains(github.event.head_commit.message, '[fail-deploy]')
+        run: yq -i '.images[0].newTag = "this-tag-does-not-exist"' k8s/kustomization.yaml
+
+      - name: Deploy to GKE
+        run: kubectl apply -k k8s/
+
+      - name: Wait for backend rollout
+        id: rollout_backend
+        continue-on-error: true
+        run: kubectl rollout status deployment/backend --timeout=180s
+
+      - name: Wait for frontend rollout
+        id: rollout_frontend
+        continue-on-error: true
+        run: kubectl rollout status deployment/frontend --timeout=180s
+
+      - name: Check the public URL
+        id: health_check
+        continue-on-error: true
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL")
+          echo "HTTP status: $code"
+          test "$code" = "200"
+
+      # --- Automatic rollback: only runs if something above failed ---
+      - name: Roll back backend
+        if: steps.rollout_backend.outcome == 'failure' || steps.rollout_frontend.outcome == 'failure' || steps.health_check.outcome == 'failure'
+        run: kubectl rollout undo deployment/backend
+
+      - name: Roll back frontend
+        if: steps.rollout_backend.outcome == 'failure' || steps.rollout_frontend.outcome == 'failure' || steps.health_check.outcome == 'failure'
+        run: kubectl rollout undo deployment/frontend
+
+      - name: Verify the previous version is serving again
+        if: steps.rollout_backend.outcome == 'failure' || steps.rollout_frontend.outcome == 'failure' || steps.health_check.outcome == 'failure'
+        run: |
+          kubectl rollout status deployment/backend --timeout=120s
+          kubectl rollout status deployment/frontend --timeout=120s
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL")
+          echo "HTTP status after rollback: $code"
+          test "$code" = "200"
+
+      # Mark the run as failed overall whenever a rollback happened, so the
+      # run is clearly flagged red even though it self-healed successfully.
+      - name: Fail the run (a rollback occurred)
+        if: steps.rollout_backend.outcome == 'failure' || steps.rollout_frontend.outcome == 'failure' || steps.health_check.outcome == 'failure'
+        run: |
+          echo "Deployment failed and was rolled back. See the steps above for details."
+          exit 1
