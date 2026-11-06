@@ -31,3 +31,13 @@ data/uploads/
 .DS_Store
 .vscode/
 .idea/
+
+# Terraform (Milestone 6): the downloaded provider plugin and any local state
+# artifacts. State itself lives in the remote GCS backend, not here, but these
+# are ignored defensively. The lock file (.terraform.lock.hcl) IS committed.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
